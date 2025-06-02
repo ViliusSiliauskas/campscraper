@@ -146,9 +146,9 @@ def save_to_csv(camps, filename=None):
         filename = filename or get_timestamped_filename()
         filepath = output_dir / filename
 
-        # Save to CSV
+        # Save to CSV with UTF-8-BOM encoding for Excel compatibility
         df = pd.DataFrame(camps)
-        df.to_csv(filepath, index=False, encoding=config.OUTPUT_ENCODING)
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
         logging.info(f"Data saved to {filepath}")
         
         # Generate and save summary
@@ -164,7 +164,7 @@ def save_to_csv(camps, filename=None):
         }
         
         summary_file = output_dir / 'summary.txt'
-        with open(summary_file, 'w', encoding='utf-8') as f:
+        with open(summary_file, 'w', encoding='utf-8-sig') as f:
             f.write("Summer Camps Summary\n")
             f.write("===================\n\n")
             f.write(f"Total Camps: {summary['total_camps']}\n")
