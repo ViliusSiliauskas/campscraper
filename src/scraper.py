@@ -9,23 +9,26 @@ from lxml import html
 from datetime import datetime
 import logging
 from pathlib import Path
-from . import config
+import config
+import os
 
-# Set up logging
+def setup_output_directory():
+    """Create output directory if it doesn't exist"""
+    script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    output_dir = script_dir.parent / "output"
+    output_dir.mkdir(exist_ok=True)
+    return output_dir
+
+# Set up logging with proper path
+output_dir = setup_output_directory()
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('scraper.log'),
+        logging.FileHandler(output_dir / 'scraper.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
-
-def setup_output_directory():
-    """Create output directory if it doesn't exist"""
-    output_dir = Path("output")
-    output_dir.mkdir(exist_ok=True)
-    return output_dir
 
 def get_timestamped_filename():
     """Generate filename with timestamp"""
@@ -50,7 +53,6 @@ def extract_field(card, selector, field_name):
         p = h6[0].getnext()
         if p is not None and p.tag == 'p':
             value = p.text_content().strip()
-    logging.info(f"📝 {field_name}: {value}")
     return value
 
 def scrape_camps(max_camps=None):
@@ -68,109 +70,88 @@ def scrape_camps(max_camps=None):
     page = 1
     all_camps = []
 
-    logging.info("🚀 Starting web scraping...")
+    logging.info("Starting web scraping...")
 
     while len(all_camps) < max_camps:
         url = f"{config.BASE_URL}?page={page}" if page > 1 else config.BASE_URL
-        logging.info(f"🔄 Loading page: {url}")
+        logging.info(f"Processing page {page}: {url}")
 
         try:
+            # Fetch and parse page
             response = requests.get(
                 url, 
                 headers=config.HEADERS, 
                 timeout=config.REQUEST_TIMEOUT
             )
             response.raise_for_status()
-            logging.info(f"✅ Successfully fetched page {page}")
-        except requests.exceptions.RequestException as e:
-            logging.error(f"🔚 Error fetching page {url}: {e}")
-            break
-
-        try:
+            
             tree = html.fromstring(response.content)
             cards = tree.xpath(config.SELECTORS["camp_cards"])
-            logging.info(f"📊 Found {len(cards)} camp cards on page {page}")
             
             if not cards:
-                logging.info(f"No camp cards found on page {page}. Stopping.")
+                logging.info(f"No more camps found on page {page}. Stopping.")
                 break
 
+            # Process each card
             for card in cards:
                 if len(all_camps) >= max_camps:
                     break
 
-                try:
-                    # Extract title
-                    title_el = card.xpath(config.SELECTORS["title"])
-                    title = title_el[0].strip() if title_el else "–"
-                    logging.info(f"📝 Processing camp: {title}")
-
-                    # Extract other fields
-                    organizer = extract_field(card, config.SELECTORS["organizer"], "Organizatorius")
-                    age = extract_field(card, config.SELECTORS["age_group"], "Amžiaus grupė")
-                    price = extract_field(card, config.SELECTORS["price"], "Kaina")
-
-                    # Extract link
-                    link_el = card.xpath(config.SELECTORS["link"])
-                    link = f"{config.BASE_URL}{link_el[0]}" if link_el else "–"
-
-                    all_camps.append({
-                        config.CSV_COLUMNS["title"]: title,
-                        config.CSV_COLUMNS["organizer"]: organizer,
-                        config.CSV_COLUMNS["age_group"]: age,
-                        config.CSV_COLUMNS["price"]: price,
-                        config.CSV_COLUMNS["link"]: link
-                    })
-
-                    logging.info(f"✅ Successfully processed camp {len(all_camps)} / {max_camps}")
-
-                except Exception as e:
-                    logging.error(f"⚠️ Error processing camp: {str(e)}")
-                    continue
+                # Extract all fields
+                title_el = card.xpath(config.SELECTORS["title"])
+                title = title_el[0].strip() if title_el else "–"
+                
+                camp_data = {
+                    config.CSV_COLUMNS["title"]: title,
+                    config.CSV_COLUMNS["organizer"]: extract_field(card, config.SELECTORS["organizer"], "Organizatorius"),
+                    config.CSV_COLUMNS["age_group"]: extract_field(card, config.SELECTORS["age_group"], "Amžiaus grupė"),
+                    config.CSV_COLUMNS["price"]: extract_field(card, config.SELECTORS["price"], "Kaina")
+                }
+                
+                # Extract link
+                link_el = card.xpath(config.SELECTORS["link"])
+                camp_data[config.CSV_COLUMNS["link"]] = f"{config.BASE_URL}{link_el[0]}" if link_el else "–"
+                
+                all_camps.append(camp_data)
+                logging.info(f"Processed camp {len(all_camps)}/{max_camps}: {title}")
 
             page += 1
             time.sleep(config.DELAY_BETWEEN_REQUESTS)
 
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching page {url}: {str(e)}")
+            break
         except Exception as e:
-            logging.error(f"⚠️ Error parsing page {page}: {str(e)}")
+            logging.error(f"Error processing page {page}: {str(e)}")
             break
 
+    logging.info(f"Completed scraping. Total camps collected: {len(all_camps)}")
     return all_camps
 
 def save_to_csv(camps, filename=None):
     """
-    Save camps data to CSV file
+    Save camps data to CSV file and generate summary
     
     Args:
         camps (list): List of dictionaries containing camp information
         filename (str, optional): Name of the output CSV file. 
                                 If None, generates timestamped filename
     """
+    if not camps:
+        logging.warning("No camps data to save")
+        return
+
     try:
         output_dir = setup_output_directory()
         filename = filename or get_timestamped_filename()
         filepath = output_dir / filename
 
+        # Save to CSV
         df = pd.DataFrame(camps)
         df.to_csv(filepath, index=False, encoding=config.OUTPUT_ENCODING)
-        logging.info(f"✅ Data saved to {filepath}")
-        logging.info(f"📊 Total camps collected: {len(camps)}")
+        logging.info(f"Data saved to {filepath}")
         
-        generate_summary(df, output_dir)
-        
-    except Exception as e:
-        logging.error(f"⚠️ Error saving to CSV: {str(e)}")
-
-def generate_summary(df, output_dir):
-    """
-    Generate summary statistics about the camps
-    
-    Args:
-        df (pandas.DataFrame): DataFrame containing camp data
-        output_dir (Path): Directory to save summary
-    """
-    try:
-        # Price analysis
+        # Generate and save summary
         df['price_numeric'] = df['Kaina'].str.extract(r'(\d+)').astype(float)
         
         summary = {
@@ -182,7 +163,6 @@ def generate_summary(df, output_dir):
             'organizers_count': df['Organizatorius'].nunique()
         }
         
-        # Save summary to file
         summary_file = output_dir / 'summary.txt'
         with open(summary_file, 'w', encoding='utf-8') as f:
             f.write("Summer Camps Summary\n")
@@ -193,10 +173,10 @@ def generate_summary(df, output_dir):
             f.write(f"Free Camps: {summary['free_camps']}\n")
             f.write(f"Unique Organizers: {summary['organizers_count']}\n")
         
-        logging.info(f"✅ Summary saved to {summary_file}")
+        logging.info(f"Summary saved to {summary_file}")
         
     except Exception as e:
-        logging.error(f"⚠️ Error generating summary: {str(e)}")
+        logging.error(f"Error saving data: {str(e)}")
 
 def main():
     """Main function to run the scraper"""
@@ -204,7 +184,8 @@ def main():
         camps = scrape_camps()
         save_to_csv(camps)
     except Exception as e:
-        logging.error(f"⚠️ Fatal error: {str(e)}")
+        logging.error(f"Fatal error: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     main() 

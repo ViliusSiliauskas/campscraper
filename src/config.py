@@ -8,7 +8,6 @@ REQUEST_TIMEOUT = 10  # Timeout for HTTP requests in seconds
 DELAY_BETWEEN_REQUESTS = 2  # Delay between page requests in seconds
 
 # Output settings
-OUTPUT_FILENAME = "vilnius_vasaros_stovyklos.csv"
 OUTPUT_ENCODING = "utf-8"
 
 # URL settings
