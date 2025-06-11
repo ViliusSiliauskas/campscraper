@@ -11,7 +11,7 @@ A Python web scraper that collects information about summer camps from the Vilni
   - Price (Kaina)
   - Link (Nuoroda)
 - Saves data to CSV format
-- Generates summary statistics
+- Performs detailed price and age analysis
 - Polite crawling with delays between requests
 - Error handling and logging
 - Configurable number of camps to scrape
@@ -47,22 +47,37 @@ python src/scraper.py
 
 The scraper will:
 1. Collect data from the Vilnius municipality website
-2. Save camp information to a CSV file in the `output` directory
-3. Generate a summary report
-4. Create a detailed log file
+2. Save camp information to a CSV file
+3. Generate statistical analysis files
+4. Create a summary report
+5. Maintain a detailed log file
 
 ## Output Files
 
 The scraper generates several files in the `output` directory:
 
-- `vasaros_stovyklos_[timestamp].csv`: Main data file containing all scraped camp information
-- `summary.txt`: Statistical summary including:
-  - Total number of camps
-  - Average price
-  - Price range
-  - Number of free camps
-  - Number of unique organizers
-- `scraper.log`: Detailed logging information about the scraping process
+1. Main Data:
+   - `vasaros_stovyklos_[timestamp].csv`: Raw scraped camp information
+
+2. Analysis Files:
+   - `price_analysis_[timestamp].csv`: Detailed price statistics including:
+     - Mean and median prices
+     - Standard deviation
+     - Price quartiles (25%, 50%, 75%)
+   - `price_outliers_[timestamp].csv`: List of price outliers
+   - `age_analysis_[timestamp].csv`: Age group statistics including:
+     - Mean age
+     - Age range (min/max)
+     - Most common age
+
+3. Summary and Logs:
+   - `summary.txt`: Basic statistical summary including:
+     - Total number of camps
+     - Average price
+     - Price range
+     - Number of free camps
+     - Number of unique organizers
+   - `scraper.log`: Detailed logging information about the scraping process
 
 ## Configuration
 
@@ -80,3 +95,4 @@ You can modify the following settings in `src/config.py`:
   - pandas>=2.2.3
   - lxml>=5.4.0
   - python-dateutil>=2.9.0
+  - numpy (for statistical analysis)

@@ -4,7 +4,9 @@ Web scraper for Vilnius summer camps data.
 
 import requests
 import pandas as pd
+import numpy as np
 import time
+import json
 from lxml import html
 from datetime import datetime
 import logging
@@ -128,6 +130,129 @@ def scrape_camps(max_camps=None):
     logging.info(f"Completed scraping. Total camps collected: {len(all_camps)}")
     return all_camps
 
+def analyze_prices(df):
+    """
+    Analyze price data using NumPy
+    
+    Args:
+        df: DataFrame containing camp data
+        
+    Returns:
+        dict: Price statistics and outliers
+    """
+    # Convert prices to numeric, handling non-numeric values
+    price_array = np.array(df['price_numeric'])
+    price_array = price_array[~np.isnan(price_array)]  # Remove NaN values
+    
+    if len(price_array) == 0:
+        return {
+            'mean': 0,
+            'median': 0,
+            'std': 0,
+            'percentiles': [0, 0, 0],
+            'outliers': []
+        }
+    
+    # Calculate basic statistics
+    stats = {
+        'mean': float(np.mean(price_array)),
+        'median': float(np.median(price_array)),
+        'std': float(np.std(price_array)),
+        'percentiles': [float(x) for x in np.percentile(price_array, [25, 50, 75])]
+    }
+    
+    # Identify outliers using IQR method
+    Q1, Q3 = np.percentile(price_array, [25, 75])
+    IQR = Q3 - Q1
+    outliers = price_array[(price_array < Q1 - 1.5*IQR) | (price_array > Q3 + 1.5*IQR)]
+    stats['outliers'] = [float(x) for x in outliers]
+    
+    return stats
+
+def analyze_age_groups(df):
+    """
+    Analyze age group data using NumPy
+    
+    Args:
+        df: DataFrame containing camp data
+        
+    Returns:
+        dict: Age group statistics
+    """
+    # Extract numeric ages from age group strings (both start and end ages)
+    age_ranges = df['Amžiaus grupė'].str.extractall(r'(\d+)').astype(float)
+    
+    if len(age_ranges) == 0:
+        return {
+            'mean_age': 0,
+            'age_range': {'min': 0, 'max': 0},
+            'most_common_age': 0
+        }
+    
+    # Reshape the array to handle start and end ages
+    age_array = age_ranges.values.flatten()
+    
+    # Calculate age statistics
+    age_stats = {
+        'mean_age': float(np.mean(age_array)),
+        'age_range': {
+            'min': float(np.min(age_array)),
+            'max': float(np.max(age_array))
+        },
+        'most_common_age': float(np.bincount(age_array.astype(int)).argmax())
+    }
+    
+    return age_stats
+
+def save_analysis_csv(df, output_dir):
+    """
+    Save price and age analysis to CSV files
+    
+    Args:
+        df: DataFrame containing camp data
+        output_dir: Path to output directory
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Price analysis
+    price_stats = analyze_prices(df)
+    price_df = pd.DataFrame({
+        'Metric': ['Mean Price', 'Median Price', 'Standard Deviation', 
+                  'First Quartile (25%)', 'Second Quartile (50%)', 'Third Quartile (75%)'],
+        'Value (EUR)': [
+            price_stats['mean'],
+            price_stats['median'],
+            price_stats['std'],
+            price_stats['percentiles'][0],
+            price_stats['percentiles'][1],
+            price_stats['percentiles'][2]
+        ]
+    })
+    
+    # Save outliers in a separate DataFrame
+    outliers_df = pd.DataFrame({
+        'Outlier Prices (EUR)': price_stats['outliers']
+    })
+    
+    # Age analysis
+    age_stats = analyze_age_groups(df)
+    age_df = pd.DataFrame({
+        'Metric': ['Mean Age', 'Minimum Age', 'Maximum Age', 'Most Common Age'],
+        'Value (Years)': [
+            age_stats['mean_age'],
+            age_stats['age_range']['min'],
+            age_stats['age_range']['max'],
+            age_stats['most_common_age']
+        ]
+    })
+    
+    # Save DataFrames to CSV files
+    price_df.to_csv(output_dir / f'price_analysis_{timestamp}.csv', index=False, encoding='utf-8-sig')
+    outliers_df.to_csv(output_dir / f'price_outliers_{timestamp}.csv', index=False, encoding='utf-8-sig')
+    age_df.to_csv(output_dir / f'age_analysis_{timestamp}.csv', index=False, encoding='utf-8-sig')
+    
+    logging.info(f"Analysis data saved to CSV files in {output_dir}")
+
 def save_to_csv(camps, filename=None):
     """
     Save camps data to CSV file and generate summary
@@ -151,9 +276,10 @@ def save_to_csv(camps, filename=None):
         df.to_csv(filepath, index=False, encoding='utf-8-sig')
         logging.info(f"Data saved to {filepath}")
         
-        # Generate and save summary
+        # Extract numeric prices for analysis
         df['price_numeric'] = df['Kaina'].str.extract(r'(\d+)').astype(float)
         
+        # Generate and save summary
         summary = {
             'total_camps': len(df),
             'avg_price': df['price_numeric'].mean(),
@@ -174,6 +300,9 @@ def save_to_csv(camps, filename=None):
             f.write(f"Unique Organizers: {summary['organizers_count']}\n")
         
         logging.info(f"Summary saved to {summary_file}")
+        
+        # Save detailed analysis to CSV files
+        save_analysis_csv(df, output_dir)
         
     except Exception as e:
         logging.error(f"Error saving data: {str(e)}")
